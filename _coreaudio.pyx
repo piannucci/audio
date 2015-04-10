@@ -91,6 +91,12 @@ kAudioDevicePropertyDeviceUID = FOUR_CHAR_CODE('uid ')
 kAudioObjectPropertyName = FOUR_CHAR_CODE('lnam')
 kAudioObjectPropertyManufacturer = FOUR_CHAR_CODE('lmak')
 
+kAudioTimeStampSampleTimeValid      = (1 << 0)
+kAudioTimeStampHostTimeValid        = (1 << 1)
+kAudioTimeStampRateScalarValid      = (1 << 2)
+kAudioTimeStampWordClockTimeValid   = (1 << 3)
+kAudioTimeStampSMPTETimeValid       = (1 << 4)
+
 cdef extern from "CoreAudio/AudioHardware.h":
     ctypedef unsigned int OSStatus
     ctypedef unsigned char Boolean
@@ -196,6 +202,15 @@ cdef extern from "CoreAudio/AudioHardware.h":
     OSStatus AudioDeviceDestroyIOProcID(AudioDeviceID inDevice, AudioDeviceIOProcID inIOProcID)
 
 
+cdef extern from "mach/mach_time.h":
+    UInt64 mach_absolute_time()
+
+    ctypedef struct mach_timebase_info_data_t:
+        UInt32 numer
+        UInt32 denom
+
+    int mach_timebase_info(mach_timebase_info_data_t *info)
+
 cdef object arrayFromBuffer(AudioBuffer buffer, asbd):
     cdef UInt32 flags = asbd['mFormatFlags']
 
@@ -214,7 +229,8 @@ cdef object arrayFromBuffer(AudioBuffer buffer, asbd):
     cdef UInt32 bytesPerFrame = asbd['mBytesPerFrame']
 
     cdef int ndims = 1 if channelsPerFrame == 1 else 2
-    cdef cnp.npy_intp dims[2], strides[2]
+    cdef cnp.npy_intp dims[2]
+    cdef cnp.npy_intp strides[2]
     dims[0] = buffer.mDataByteSize // bytesPerFrame
     strides[0] = bytesPerFrame
     dims[1] = channelsPerFrame
@@ -234,10 +250,27 @@ cdef OSStatus playbackCallback(
     cdef object cb = <object> inClientData
 
     try:
+        sbd = cb.playbackASBD
+
+        if not (inOutputTime.mFlags & kAudioTimeStampHostTimeValid):
+            raise Exception('No host timestamps')
+        startTime = cb.playbackStartHostTime
+        outputTimeStart = inOutputTime.mHostTime
+        framesDemanded = 0
+        ticksPerFrame = 1e9 / (sbd['mSampleRate'] * cb.nanosecondsPerAbsoluteTick)
+        bytesPerFrame = sbd['mBytesPerFrame']
+
         cb.playbackStarted = True
         zeroFill = False
         for i from 0 <= i < outOutputData.mNumberBuffers:
-            buffer = arrayFromBuffer(outOutputData.mBuffers[i], cb.playbackASBD)
+            framesDemanded += outOutputData.mBuffers[i].mDataByteSize / bytesPerFrame
+            outputTime = outputTimeStart + framesDemanded * ticksPerFrame
+            buffer = arrayFromBuffer(outOutputData.mBuffers[i], sbd)
+            if outputTime < startTime:
+                # zero pad front
+                firstGoodSample = min((startTime - outputTime) / ticksPerFrame, buffer.shape[0])
+                buffer[:firstGoodSample] = 0
+                buffer = buffer[firstGoodSample:]
             if not zeroFill:
                 if cb.playbackCallback(buffer):
                     stopPlayback(cb)
@@ -255,11 +288,28 @@ cdef OSStatus recordingCallback(
     void *inClientData) with gil:
 
     cdef object cb = <object> inClientData
-
+    
     try:
+        sbd = cb.recordingASBD
+
+        if not (inInputTime.mFlags & kAudioTimeStampHostTimeValid):
+            raise Exception('No host timestamps')
+        startTime = cb.recordingStartHostTime
+        inputTimeStart = inInputTime.mHostTime
+        framesProvided = 0
+        ticksPerFrame = 1e9 / (sbd['mSampleRate'] * cb.nanosecondsPerAbsoluteTick)
+        bytesPerFrame = sbd['mBytesPerFrame']
+
         cb.recordingStarted = True
         for i from 0 <= i < inInputData.mNumberBuffers:
-            if cb.recordingCallback(arrayFromBuffer(inInputData.mBuffers[0], cb.recordingASBD)):
+            framesProvided += inInputData.mBuffers[i].mDataByteSize / bytesPerFrame
+            inputTime = inputTimeStart + framesProvided * ticksPerFrame
+            buffer = arrayFromBuffer(inInputData.mBuffers[i], sbd)
+            if inputTime < startTime:
+                # drop samples
+                firstGoodSample = min((startTime - inputTime) / ticksPerFrame, buffer.shape[0])
+                buffer = buffer[firstGoodSample:]
+            if cb.recordingCallback(buffer):
                 stopRecording(cb)
                 break
     except Exception, e:
@@ -336,7 +386,7 @@ cdef UInt32 outBufSize = 2048
 def getOutBufSize():
     return outBufSize
 
-def startPlayback(cb, sampleRate, device):
+def startPlayback(cb, sampleRate, device, startTime):
     cdef AudioDeviceID outputDeviceID = 0
     if device is None:
         # Get the default sound output device
@@ -376,6 +426,8 @@ def startPlayback(cb, sampleRate, device):
     cb.playbackIOProcID = <long>ioProcID
     cb.playbackASBD = sbd
     cb.playbackStarted = False
+    cb.playbackStartHostTime = <UInt64>startTime
+    cb.nanosecondsPerAbsoluteTick = nanosecondsPerAbsoluteTick()
 
 
 def stopPlayback(cb):
@@ -387,6 +439,7 @@ def stopPlayback(cb):
     del cb.playbackIOProcID
     del cb.playbackASBD
     del cb.playbackStarted
+    del cb.playbackStartHostTime
     Py_DECREF(cb)
 
 cdef UInt32 inBufSize = 2048
@@ -394,7 +447,7 @@ cdef UInt32 inBufSize = 2048
 def getInBufSize():
     return inBufSize
 
-def startRecording(cb, sampleRate, device):
+def startRecording(cb, sampleRate, device, startTime):
     cdef AudioDeviceID inputDeviceID = 0
     if device is None:
         # Get the default sound input device
@@ -434,6 +487,9 @@ def startRecording(cb, sampleRate, device):
     cb.recordingIOProcID = <long>ioProcID
     cb.recordingASBD = sbd
     cb.recordingStarted = False
+    cb.recordingStartHostTime = <UInt64>startTime
+    cb.nanosecondsPerAbsoluteTick = nanosecondsPerAbsoluteTick()
+
 
 def stopRecording(cb):
     cdef AudioDeviceIOProcID ioProcID = <AudioDeviceIOProcID><long>cb.recordingIOProcID
@@ -444,7 +500,15 @@ def stopRecording(cb):
     del cb.recordingIOProcID
     del cb.recordingASBD
     del cb.recordingStarted
+    del cb.recordingStartHostTime
     Py_DECREF(cb)
 
+def hostTimeNow():
+    return mach_absolute_time()
+
+def nanosecondsPerAbsoluteTick():
+    cdef mach_timebase_info_data_t info
+    mach_timebase_info(&info)
+    return <double>info.numer / info.denom
 
 cnp.import_array()
