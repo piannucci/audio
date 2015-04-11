@@ -263,12 +263,12 @@ cdef OSStatus playbackCallback(
         cb.playbackStarted = True
         zeroFill = False
         for i from 0 <= i < outOutputData.mNumberBuffers:
-            framesDemanded += outOutputData.mBuffers[i].mDataByteSize / bytesPerFrame
             outputTime = outputTimeStart + framesDemanded * ticksPerFrame
+            framesDemanded += outOutputData.mBuffers[i].mDataByteSize / bytesPerFrame
             buffer = arrayFromBuffer(outOutputData.mBuffers[i], sbd)
             if outputTime < startTime:
                 # zero pad front
-                firstGoodSample = min((startTime - outputTime) / ticksPerFrame, buffer.shape[0])
+                firstGoodSample = <int>min((startTime - outputTime) / ticksPerFrame, buffer.shape[0])
                 buffer[:firstGoodSample] = 0
                 buffer = buffer[firstGoodSample:]
             if not zeroFill:
@@ -302,12 +302,12 @@ cdef OSStatus recordingCallback(
 
         cb.recordingStarted = True
         for i from 0 <= i < inInputData.mNumberBuffers:
-            framesProvided += inInputData.mBuffers[i].mDataByteSize / bytesPerFrame
             inputTime = inputTimeStart + framesProvided * ticksPerFrame
+            framesProvided += inInputData.mBuffers[i].mDataByteSize / bytesPerFrame
             buffer = arrayFromBuffer(inInputData.mBuffers[i], sbd)
             if inputTime < startTime:
                 # drop samples
-                firstGoodSample = min((startTime - inputTime) / ticksPerFrame, buffer.shape[0])
+                firstGoodSample = <int>min((startTime - inputTime) / ticksPerFrame, buffer.shape[0])
                 buffer = buffer[firstGoodSample:]
             if cb.recordingCallback(buffer):
                 stopRecording(cb)
