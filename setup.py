@@ -29,7 +29,8 @@ import numpy
 
 _coreaudio = Extension('audio._coreaudio',
                        ['src/_coreaudio.pyx'],
-                       extra_link_args=["-framework", "CoreAudio", "-framework", "CoreFoundation"])
+                       extra_link_args=["-framework", "CoreAudio", "-framework", "CoreFoundation"],
+                       )
 
 setup(name='Audio',
       version='1.0.0',
