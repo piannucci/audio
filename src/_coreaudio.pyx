@@ -229,8 +229,7 @@ cdef object arrayFromBuffer(AudioBuffer buffer, asbd):
     cdef UInt32 bytesPerFrame = asbd['mBytesPerFrame']
 
     cdef int ndims = 1 if channelsPerFrame == 1 else 2
-    cdef cnp.npy_intp dims[2]
-    cdef cnp.npy_intp strides[2]
+    cdef cnp.npy_intp dims[2], strides[2]
     dims[0] = buffer.mDataByteSize // bytesPerFrame
     strides[0] = bytesPerFrame
     dims[1] = channelsPerFrame
@@ -288,7 +287,7 @@ cdef OSStatus recordingCallback(
     void *inClientData) with gil:
 
     cdef object cb = <object> inClientData
-    
+
     try:
         sbd = cb.recordingASBD
 

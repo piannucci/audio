@@ -176,6 +176,7 @@ class Visualizer(ThreadedStream):
         mgr.set_window_title('Blurt')
         #self.fig.set_figwidth(screensize.width/dpi)
         #self.fig.set_figheight(screensize.height/dpi)
+        self.ax = pl.gca()
         #widget = self.fig.canvas.get_tk_widget()
         #widget.winfo_toplevel().lift()
         ca.sleepDuration = .01
@@ -186,7 +187,6 @@ class Oscilloscope(Visualizer):
     def init(self):
         super(Oscilloscope, self).init()
         self.line = self.ax.plot(np.zeros(ca.inBufSize))[0]
-        self.ax = self.pl.gca()
         self.ax.set_ylim(-.5,.5)
     def thread_consume(self, sequence):
         self.line.set_ydata(sequence)
@@ -296,7 +296,10 @@ class SpectrumAnalyzer(Visualizer):
             self.fim.set_data(b if not self.transpose else b.T)
             self.fim.set_extent((t, t+self.duration, 0, self.Fs/2000.))
             self.ax.set_xlim(t, t+self.duration)
-            self.draw()
+            def onMainThread():
+                self.fig.draw_artist(self.fig)
+                self.fig.canvas.blit()
+            self.onMainThread(onMainThread)
             self.t += float(n * self.advance) / self.Fs
 
 def go():
