@@ -5,8 +5,6 @@ import time
 import Queue as queue
 
 mainThreadQueue = queue.Queue()
-outBufSize = _coreaudio.getOutBufSize()
-inBufSize = _coreaudio.getInBufSize()
 sleepDuration = .1
 numSamplesPlayed = 0
 numSamplesRecorded = 0
@@ -36,7 +34,7 @@ class AudioInterface(object):
             buffer[:y.shape[0]] = y
             buffer[y.shape[0]:] = 0
             self.playbackOffset += count
-            if self.playbackOffset >= self.playbackBuffer.shape[0] + outBufSize*10:
+            if self.playbackOffset >= self.playbackBuffer.shape[0] + self.outBufSize*10:
                 return True
         if self.shouldStop:
             return True
@@ -59,6 +57,7 @@ class AudioInterface(object):
         self.playbackBuffer = buffer
         if hostTime is None:
             hostTime = _coreaudio.hostTimeNow()
+        self.outBufSize = getattr(buffer, 'outBufSize', getattr(self, 'outBufSize', 2048))
         _coreaudio.startPlayback(self, Fs, self.device, hostTime)
     def record(self, count_or_stream, Fs, hostTime=None):
         if hostTime is None:
@@ -69,6 +68,7 @@ class AudioInterface(object):
         else:
             self.recordingLength = count_or_stream
             self.recordingBuffer = []
+        self.inBufSize = getattr(count_or_stream, 'inBufSize', getattr(self, 'inBufSize', 2048))
         _coreaudio.startRecording(self, Fs, self.device, hostTime)
     def isPlaying(self):
         return hasattr(self, 'playbackDeviceID')

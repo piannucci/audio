@@ -12,6 +12,8 @@ class StreamArray(np.ndarray):
         obj.kwargs = kwargs
         obj.dtype = obj.kwarg('dtype', np.float32)
         obj.channels = kwargs['channels'] if 'channels' in kwargs else 1
+        obj.inBufSize = 2048
+        obj.outBufSize = 2048
         obj.init()
         return obj
     def kwarg(self, name, default=None):
@@ -186,7 +188,7 @@ class Visualizer(ThreadedStream):
 class Oscilloscope(Visualizer):
     def init(self):
         super(Oscilloscope, self).init()
-        self.line = self.ax.plot(np.zeros(ca.inBufSize))[0]
+        self.line = self.ax.plot(np.zeros(self.inBufSize))[0]
         self.ax.set_ylim(-.5,.5)
     def thread_consume(self, sequence):
         self.line.set_ydata(sequence)
