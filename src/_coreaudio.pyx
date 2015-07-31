@@ -35,7 +35,7 @@ cdef extern from "numpy/arrayobject.h":
 
 def FOUR_CHAR_CODE(val):
     from struct import unpack
-    return unpack('!I', val)[0]
+    return unpack('!I', bytes(val, 'ascii'))[0]
 
 def INV_FOUR_CHAR_CODE(val):
     from struct import pack

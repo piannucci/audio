@@ -1,8 +1,7 @@
 import time, numpy
-import thread as _thread
-import _coreaudio
-import time
-import Queue as queue
+import _thread
+from . import _coreaudio
+import queue
 
 mainThreadQueue = queue.Queue()
 sleepDuration = .1

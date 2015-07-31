@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 import numpy as np
-import coreaudio as ca
-import thread as _thread
-import Queue as queue
+from . import coreaudio as ca
+import _thread
+import queue
 import sys
 
 class StreamArray(np.ndarray):
@@ -72,7 +72,7 @@ class ThreadedStream(StreamArray):
             self.in_queue.put_nowait(sequence)
         except queue.Full:
             print('ThreadedStream overrun')
-        except Exception, e:
+        except Exception as e:
             print('ThreadedStream exception %s' % repr(e))
     def produce(self, count):
         result = np.empty((count, self.channels), self.dtype)
@@ -96,7 +96,7 @@ class ThreadedStream(StreamArray):
                 result[i:] = 0
                 print('ThreadedStream underrun')
                 break
-            except Exception, e:
+            except Exception as e:
                 print('ThreadedStream exception %s' % repr(e))
             else:
                 n = min(count-i, fragment.shape[0])
