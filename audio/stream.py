@@ -1,46 +1,32 @@
 #!/usr/bin/env python
 import numpy as np
-from . import coreaudio as ca
+from . import coreaudio
 import _thread
 import queue
 import sys
 
-class StreamArray(np.ndarray):
-    def __new__(cls, *args, **kwargs):
-        obj = np.asarray([]).view(cls)
-        obj.args = args
-        obj.kwargs = kwargs
-        obj.dtype = obj.kwarg('dtype', np.float32)
-        obj.channels = kwargs['channels'] if 'channels' in kwargs else 1
-        obj.inBufSize = 2048
-        obj.outBufSize = 2048
-        obj.init()
-        return obj
-    def kwarg(self, name, default=None):
-        if name in self.kwargs:
-            return self.kwargs[name]
-        return default
-    def __array__(self, dtype=None):
-        if dtype is not None:
-            return StreamArray(*self.args, **self.kwargs)
-        return self
-    def __array_finalize__(self, obj):
-        if obj is None:
-            return
-        self.args = getattr(obj, 'args', ())
-        self.kwargs = getattr(obj, 'kwargs', {})
+class StreamArray:
+    def __init__(self, dtype=np.float32):
+        self.dtype = dtype
+        self.inBufSize = 2048
+        self.outBufSize = 2048
     def __len__(self):
-        return sys.maxint
-    def __getslice__(self, i, j):
-        return self.produce(j-i).astype(self.dtype)
+        return sys.maxsize
+    def __getitem__(self, sl):
+        if isinstance(sl, slice):
+            count = sl.stop - sl.start
+        elif isinstance(sl, int):
+            count = 1
+        else:
+            raise TypeError('Unexpected slice arguments')
+        return self.produce(count).astype(self.dtype)
     def append(self, sequence):
         return self.consume(sequence)
-    @property
-    def shape(self):
-        return (len(self), self.channels)
 
 class ThreadedStream(StreamArray):
-    def init(self):
+    def __init__(self, channels=1):
+        super().__init__()
+        self.channels = channels
         self.in_queue = queue.Queue(64)
         self.out_queue = queue.Queue(64)
         if hasattr(self, 'thread_consume'):
@@ -107,7 +93,7 @@ class ThreadedStream(StreamArray):
         self.numSamplesRead += result.shape[0]
         return result
     def onMainThread(self, fn):
-        ca.add_to_main_thread_queue(fn)
+        coreaudio.add_to_main_thread_queue(fn)
     def stop(self):
         self.in_queue.put(None)
 
@@ -116,12 +102,11 @@ class WhiteNoise(ThreadedStream):
         return np.random.standard_normal(1024) * .2
 
 class Sine(ThreadedStream):
-    def init(self):
-        super(Sine, self).init()
+    def __init__(self):
+        super().__init__(channels=2)
         self.f = 880.
         self.i = 0
         self.Fs = 48000.
-        self.channels = 2
     def thread_produce(self):
         j = np.arange(1024) + self.i
         t = j/self.Fs
@@ -132,10 +117,10 @@ class Sine(ThreadedStream):
         return np.hstack((l[:,np.newaxis], r[:,np.newaxis]))
 
 class VUMeter(ThreadedStream):
-    def init(self):
-        super(VUMeter, self).init()
+    def __init__(self, Fs=96e3):
+        super().__init__()
         self.peak = 0.
-        self.Fs = self.kwarg('Fs', 96000.)
+        self.Fs = Fs
     def thread_consume(self, sequence):
         volume = 30 + int(round(10.*np.log10((np.abs(sequence).astype(float)**2).mean())))
         peak = 30 + int(round(10.*np.log10((np.abs(sequence).astype(float)**2).max())))
@@ -147,8 +132,8 @@ class VUMeter(ThreadedStream):
         sys.stdout.flush()
 
 class Visualizer(ThreadedStream):
-    def init(self):
-        super(Visualizer, self).init()
+    def __init__(self):
+        super().__init__()
         import pylab as pl
         self.pl = pl
         dpi = pl.rcParams['figure.dpi']
@@ -181,13 +166,13 @@ class Visualizer(ThreadedStream):
         self.ax = pl.gca()
         #widget = self.fig.canvas.get_tk_widget()
         #widget.winfo_toplevel().lift()
-        ca.sleepDuration = .01
+        coreaudio.sleepDuration = .01
     def draw(self):
         self.onMainThread(self.pl.draw)
 
 class Oscilloscope(Visualizer):
-    def init(self):
-        super(Oscilloscope, self).init()
+    def __init__(self):
+        super().__init__()
         self.line = self.ax.plot(np.zeros(self.inBufSize))[0]
         self.ax.set_ylim(-.5,.5)
     def thread_consume(self, sequence):
@@ -235,16 +220,18 @@ def set_backgroundcolor(ax, color):
          lh.legendPatch.set_facecolor(color)
 
 class SpectrumAnalyzer(Visualizer):
-    def init(self):
-        super(SpectrumAnalyzer, self).init()
-        self.Fs = self.kwarg('Fs', 96000.)
-        self.Fc = self.kwarg('Fc', 0.)
-        self.NFFT = self.kwarg('NFFT', 2048)
-        self.noverlap = self.kwarg('noverlap', 2048-256)
-        self.window = self.kwarg('window', self.pl.mlab.window_hanning)(np.ones(self.NFFT))
-        self.duration = self.kwarg('duration', 1.)
-        self.transpose = self.kwarg('transpose', False)
-        self.sides = self.kwarg('sides', 1)
+    def __init__(self, Fs=96e3, Fc=0., NFFT=2048, noverlap=2048-256, window=None, duration=1., transpose=False, sides=1):
+        super().__init__()
+        self.Fs = Fs
+        self.Fc = Fc
+        self.NFFT = NFFT
+        self.noverlap = noverlap
+        if window is None:
+            window = self.pl.mlab.window_hanning
+        self.window = window(np.ones(self.NFFT))
+        self.duration = duration
+        self.transpose = transpose
+        self.sides = sides
         self.advance = self.NFFT - self.noverlap
         self.columns = int(round(self.duration * self.Fs / self.advance))
         self.buffer = np.zeros((self.NFFT*self.sides/2, self.columns*2), np.float32)

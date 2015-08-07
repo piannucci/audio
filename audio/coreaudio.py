@@ -4,7 +4,7 @@ from . import _coreaudio
 import queue
 
 mainThreadQueue = queue.Queue()
-sleepDuration = .1
+sleepDuration = .05
 numSamplesPlayed = 0
 numSamplesRecorded = 0
 
@@ -33,7 +33,7 @@ class AudioInterface(object):
             buffer[:y.shape[0]] = y
             buffer[y.shape[0]:] = 0
             self.playbackOffset += count
-            if self.playbackOffset >= self.playbackBuffer.shape[0] + self.outBufSize*10:
+            if self.playbackOffset >= len(self.playbackBuffer) + self.outBufSize*10:
                 return True
         if self.shouldStop:
             return True
@@ -96,8 +96,8 @@ class AudioInterface(object):
             raise self.recordingException
         if hasattr(self.recordingBuffer, 'stop'):
             self.recordingBuffer.stop()
-        if isinstance(self.recordingBuffer, (tuple, list)):
-            return numpy.hstack(self.recordingBuffer)
+        if isinstance(self.recordingBuffer, list):
+            return numpy.concatenate(self.recordingBuffer)
         return None
     def stop(self):
         self.shouldStop = True
