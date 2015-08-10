@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import numpy as np
 from . import coreaudio
-import _thread
+import threading
 import queue
 import sys
 
@@ -30,9 +30,11 @@ class ThreadedStream(StreamArray):
         self.in_queue = queue.Queue(64)
         self.out_queue = queue.Queue(64)
         if hasattr(self, 'thread_consume'):
-            self.in_thread = _thread.start_new_thread(self.in_thread_loop, ())
+            self.in_thread = threading.Thread(target=self.in_thread_loop, daemon=True)
+            self.in_thread.start()
         if hasattr(self, 'thread_produce'):
-            self.out_thread = _thread.start_new_thread(self.out_thread_loop, ())
+            self.out_thread = threading.Thread(self.out_thread_loop, daemon=True)
+            self.out_thread.start()
         self.out_fragment = None
         self.numSamplesRead = 0
         self.numSamplesWritten = 0
