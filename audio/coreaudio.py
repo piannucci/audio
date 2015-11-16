@@ -102,6 +102,10 @@ class AudioInterface(object):
     def stop(self):
         self.shouldStop = True
         self.wait()
+    def __enter__(self):
+        return self
+    def __exit__(self, type, value, tb):
+        self.stop()
 
 ## Have to initialize the threading mechanisms in order for PyGIL_Ensure to work
 _thread.start_new_thread(lambda: None, ())
@@ -128,7 +132,7 @@ if 0:
         ap = AudioInterface(device)
         try:
             ap.play(buffer, Fs)
-            ap.record(buffer.shape[0], Fs)
+            ap.record(buffer.shape[0] if hasattr(buffer, 'shape') else buffer, Fs)
         except KeyboardInterrupt:
             ap.stop()
         return ap.wait()
@@ -143,7 +147,7 @@ else:
         try:
             aps[0].play(buffer, Fs, startTime)
             for ap in aps[1:]:
-                ap.record(buffer.shape[0], Fs, startTime)
+                ap.record(buffer.shape[0] if hasattr(buffer, 'shape') else buffer, Fs, startTime)
             while not readyFn():
                 counter = sum(ap.defaultReady() for ap in aps)
         except KeyboardInterrupt:

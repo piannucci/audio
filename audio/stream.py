@@ -5,11 +5,13 @@ import threading
 import queue
 import sys
 
+defBuf = 2048
+
 class StreamArray:
-    def __init__(self, dtype=np.float32):
+    def __init__(self, dtype=np.float32, inBufSize=defBuf, outBufSize=defBuf):
         self.dtype = dtype
-        self.inBufSize = 2048
-        self.outBufSize = 2048
+        self.inBufSize = inBufSize
+        self.outBufSize = outBufSize
     def __len__(self):
         return sys.maxsize
     def __getitem__(self, sl):
@@ -24,22 +26,24 @@ class StreamArray:
         return self.consume(sequence)
 
 class ThreadedStream(StreamArray):
-    def __init__(self, channels=1):
-        super().__init__()
+    def __init__(self, channels=1, in_thread=None, out_thread=None, out_queue_depth=64,
+                 inBufSize=defBuf, outBufSize=defBuf):
+        super().__init__(inBufSize=inBufSize, outBufSize=outBufSize)
         self.channels = channels
         self.in_queue = queue.Queue(64)
-        self.out_queue = queue.Queue(64)
-        if hasattr(self, 'thread_consume'):
-            self.in_thread = threading.Thread(target=self.in_thread_loop, daemon=True)
-            self.in_thread.start()
-        if hasattr(self, 'thread_produce'):
-            self.out_thread = threading.Thread(self.out_thread_loop, daemon=True)
-            self.out_thread.start()
+        self.out_queue = queue.Queue(out_queue_depth)
         self.out_fragment = None
         self.numSamplesRead = 0
         self.numSamplesWritten = 0
         self.numSamplesProduced = 0
         self.numSamplesConsumed = 0
+        self.warnOnUnderrun = True
+        if hasattr(self, 'thread_consume') or in_thread:
+            self.in_thread = threading.Thread(target=self.in_thread_loop, daemon=True)
+            self.in_thread.start()
+        if hasattr(self, 'thread_produce') or out_thread:
+            self.out_thread = threading.Thread(target=self.out_thread_loop, daemon=True)
+            self.out_thread.start()
     def in_thread_loop(self):
         while True:
             work = self.in_queue.get()
@@ -75,14 +79,15 @@ class ThreadedStream(StreamArray):
                 self.out_fragment = None
         while i < count:
             try:
-                fragment = self.out_queue.get_nowait()
+                fragment = self.immediate_produce()
                 if len(fragment.shape) == 1:
                     fragment = fragment[:,np.newaxis]
                 if fragment.shape[1] != self.channels and fragment.shape[1] != 1:
                     raise Exception('ThreadedStream produced a stream with the wrong number of channels.')
             except queue.Empty:
                 result[i:] = 0
-                print('ThreadedStream underrun')
+                if self.warnOnUnderrun:
+                    print('ThreadedStream underrun')
                 break
             except Exception as e:
                 print('ThreadedStream exception %s' % repr(e))
@@ -94,6 +99,8 @@ class ThreadedStream(StreamArray):
                     self.out_fragment = fragment[n:]
         self.numSamplesRead += result.shape[0]
         return result
+    def immediate_produce(self):
+        return self.out_queue.get_nowait()
     def onMainThread(self, fn):
         coreaudio.add_to_main_thread_queue(fn)
     def stop(self):
@@ -134,8 +141,8 @@ class VUMeter(ThreadedStream):
         sys.stdout.flush()
 
 class Visualizer(ThreadedStream):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         import pylab as pl
         self.pl = pl
         dpi = pl.rcParams['figure.dpi']

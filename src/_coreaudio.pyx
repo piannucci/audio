@@ -251,8 +251,14 @@ cdef OSStatus playbackCallback(
     try:
         sbd = cb.playbackASBD
 
+        if not (inNow.mFlags & kAudioTimeStampHostTimeValid):
+            raise Exception('No host timestamps')
+
         if not (inOutputTime.mFlags & kAudioTimeStampHostTimeValid):
             raise Exception('No host timestamps')
+
+        cb.playbackLatency = inOutputTime.mHostTime - inNow.mHostTime;
+
         startTime = cb.playbackStartHostTime
         outputTimeStart = inOutputTime.mHostTime
         framesDemanded = 0
@@ -291,8 +297,14 @@ cdef OSStatus recordingCallback(
     try:
         sbd = cb.recordingASBD
 
+        if not (inNow.mFlags & kAudioTimeStampHostTimeValid):
+            raise Exception('No host timestamps')
+
         if not (inInputTime.mFlags & kAudioTimeStampHostTimeValid):
             raise Exception('No host timestamps')
+
+        cb.recordingLatency = inNow.mHostTime - inInputTime.mHostTime;
+
         startTime = cb.recordingStartHostTime
         inputTimeStart = inInputTime.mHostTime
         framesProvided = 0
